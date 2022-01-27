@@ -9,6 +9,9 @@ The program dvr_1d_periodic.f90 was compiled with GNU Fortran (GCC) 8.2.0.
 The following versions of python packages were used in the data analysis notebooks.
 
 python   3.6.9  
+
 numpy  1.16.4
+
 scipy   1.5.2 
+
 matplotlib  3.1.1
