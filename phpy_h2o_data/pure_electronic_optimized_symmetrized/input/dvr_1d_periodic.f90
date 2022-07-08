@@ -1,0 +1,158 @@
+!    Program for the calculation of energies and wavefunctions of
+!    One dimensional periodic potentials
+!
+!    The input files are input_period.dat and potential_file.dat
+!    The file input_period.dat is automatically built 
+!    by executing the Jupyter notebook
+!    
+!    User needs to supply their own matrix diagonlization subroutine
+!    The diagonalization is called house in the current version
+!
+!    Author Daniel Tabor
+!    Dept. of Chemistry, Texas A&M University
+!    Last Updated January 17 2022
+!    Adapted from the structure of a Cartesian coordinate DVR code written by 
+!    Edwin L. Sibert 
+!    Dept. of Chemistry and Chemical Biology 
+!    University of Wisconsin--Madison
+!    Formulation follows the work of Colbert and Miller
+!    J. Chem. Phys. 96, 1982 (1992) 
+!    https://doi.org/10.1063/1.462100
+
+      program dvr_1d
+      implicit none
+      real(kind=8), allocatable, dimension(:)    :: angle          !angle_array
+      real(kind=8), allocatable, dimension(:)    :: t          !the kinetic energy matrix elements
+      real(kind=8), allocatable, dimension(:)    :: bk,root    !root are the eigenvalues; bk is storage
+      real(kind=8), allocatable, dimension(:,:)  :: h          !the hamiltonian and then the transformation matrix
+      real(kind=8)                               :: con   !used in setting up kinetic energy
+      real(kind=8)                               :: xmin,xmax  !min and max value of grid
+      real(kind=8)                               :: delx       !grid spacing                
+      real(kind=8)                               :: xx,pi      !xx is coordinate value 
+      real(kind=8)                               :: v11         !potentials
+      real(kind=8)                               :: mass_x     !mass of X in the XH bond
+      real(kind=8)                               :: mass_red   !diatomic reduced mass
+      real(kind=8)                               :: re         !re used in definition of the spf coordinates.
+      real(kind=8)                               :: vmin,xsal  !minimum of the potential
+      real(kind=8)                               :: cosine_part, sine_part 
+      integer                                    :: i,k,ip       !counters
+      integer                                    :: npt        !the total number of basis functions
+      integer                                    :: npoints    !the total number of dvr points
+      integer                                    :: norder     !the order of the expansion
+      integer                                    :: ix,istate,counter
+      character(len=40)                               :: filename_out,file_num
+      real(kind=8), parameter                    :: clight=2.99792458D10,av=6.0221367D23,hbar=1.05457266D-27 
+      real(kind=8), parameter                    :: au_to_cm=219474.63 
+!     ^^ conversion factors
+
+!     --------------------------------------------------------------------------------
+      pi = dacos(-1.d0)
+!     --------------------------------------------------------------------------------
+      open (16,file='input_period.dat')
+      read(16,*) ! blank line
+      read(16,*)npt                    ! Number of states to calculate and print
+      read(16,*)xmin                   !the min value of x points
+      read(16,*)xmax                   !the max value of x points
+      read(16,*)npoints                !the number of dvr points
+      read(16,*)mass_x                 !Mass of torsion degree of freedom 
+      read(16,*)filename_out                 !Mass of oscillator 
+
+      open (17,file='potential_file.dat')
+
+      allocate(t(0:2*npoints),h(2*npoints+1,2*npoints+1),bk(2*npoints+1),root(2*npoints+1))
+      xmin = 0.d0
+      xmax = 2.d0*pi
+      delx = (xmax-xmin)/dfloat(2*npoints+1)  !grid spacing 
+
+!     Set up angle array
+
+      allocate(angle(1:2*npoints+1))
+      do i = 1,2*npoints+1
+        angle(i) = xmin + dfloat(i)*delx 
+      enddo  
+!     --------------------------------------------------------------------------------
+!     set up the kinetic energy operator in the dvr !following Colbert and Miller JCP
+
+      mass_red = mass_x  ! 1.d0 
+      con = 0.5d0/mass_red !*hbar*av*1.d16/mass_red/(2.d0*pi*clight)
+      write(*,*)' the mass prefactor in wavenumbers is ',con
+      t(0) = con*dfloat(npoints)*(dfloat(npoints)+1.d0)/3.d0
+    
+      do i = 1,2*npoints
+       cosine_part = dcos((pi*dfloat(i))/(2.d0*dfloat(npoints)+1.d0))
+       sine_part = 2.d0*dsin((pi*dfloat(i))/(2.d0*dfloat(npoints)+1.d0))**2
+       t(i) = con*((-1.d0)**(dfloat(i)))*cosine_part/sine_part
+      enddo
+       
+      do i = 1,2*npoints+1
+       do ip = 1,i
+         h(i,ip) = t(iabs(i-ip))
+         h(ip,i) = h(i,ip)
+       enddo
+      enddo
+!     add on the potential contribution
+      write(*,*) 'adding potential'
+!     Read potential
+      do i = 1,2*npoints+1
+         read(17,*) xx,v11
+!    Check for internal consistency
+!    from potential file generated by Jupyter notebok
+       if (dabs(xx-angle(i)) .lt. 1d-5) then 
+        h(i,i) = v11 + h(i,i) 
+       else
+        write(*,*) 'There is a point mismatch between points'
+        write(*,*) 'Fortran program says the value is',angle(i)
+        write(*,*) 'Potential file says value is',xx
+        stop
+       endif  
+      enddo 
+
+!     -------------------------------------------------------------------
+!     Optional Printing of Hamiltonian for Testing
+      write(*,*) 'Here is the start of the ham before diagonalizing' 
+      do i = 1,max(8,npt)
+        write(*,'(13F10.5)') h(i,:) 
+      enddo
+!     ------------------------------------------------------------------
+!     -------------------------------------------------------------------
+!     Below is the matrix diagonlization routine
+!     Needs to return eigenvalues (root) and eigenvectors 
+!     In the following routine the eigenvectors are returned 
+!     In the input matrix H
+      call house(h,2*npoints+1,root,bk)
+
+!     Write and print the calculated DVR energies in both atomic units 
+!     and wavenumbers. Written to both screen and file for later
+!     Jupyter notebook analysis
+      open(unit=19,file=trim(filename_out)//'_dvr_energies.out') 
+      write(*,*) 'Here are the absolute energy levels'
+      do i = 1,min(npt,10)
+        write(*,*)i,root(i),root(i)*au_to_cm
+      enddo
+        
+      do i = 1,2*npoints+1
+       write(19,*)root(i)
+      enddo 
+
+!     DVR wavefunctions (in h) 
+!     are written to individual files for later 
+!     analysis of overlaps 
+      istate = 0
+      write(*,*) 'Taking wavefunction slices and writing full wavefunction for state',istate
+
+      do k=1,max(5,npt)
+        write(file_num,'(i5)') k
+        open(unit=79,file=trim(filename_out)//'_wavefunction_'//trim(adjustl(file_num))//'.dat') 
+        counter = 1
+        do ix = 1,2*npoints+1
+          write(79,*) xmin+delx*ix,h(counter,k)
+          counter = counter+1
+        enddo
+        close(79) 
+      enddo
+
+      
+!     -------------------------------------------------------------------
+      end program dvr_1d
+    
+!
