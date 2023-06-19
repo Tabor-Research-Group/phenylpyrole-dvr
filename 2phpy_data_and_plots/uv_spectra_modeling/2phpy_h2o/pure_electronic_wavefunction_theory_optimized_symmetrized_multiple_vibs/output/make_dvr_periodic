@@ -1,0 +1,7 @@
+compiler=gfortran
+flags=-ffree-form -std=legacy -ffree-line-length-none -C -fbounds-check
+
+dvrer: dvr_1d_periodic.f90 
+	$(compiler) $(flags) dvr_1d_periodic.f90 -o dvr_1d_periodic
+
+
